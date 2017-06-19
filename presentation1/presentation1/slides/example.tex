@@ -1,0 +1,163 @@
+\begin{frame}[fragile]
+\frametitle{Example}
+	\begin{block}{}
+        \begin{lstlisting}[
+            language=Python,
+            basicstyle=\ttfamily\tiny,
+            keywordstyle=\color{blue}\ttfamily,
+            stringstyle=\color{red}\ttfamily,
+        ]
+def _activate_in_arta(subscription):
+    """
+    ...
+    """
+    if not gargoyle.is_active('arta:provisioning:activations'):
+        return False
+
+    # Create backendcli and contact in Arta if necessary
+    arta_contact_already_exists = False
+    try:
+        cli = subscription.backendcli
+        if cli.contactid:
+            arta_contact_already_exists = True
+    except BackendCLI.DoesNotExist:
+        cli = BackendCLI.objects.create(subscription=subscription)
+    if not arta_contact_already_exists:
+        if not create_arta_contact(subscription):
+            return False
+        # Needs to be 'refreshed' to get the correct value
+        cli = subscription.backendcli
+
+    # Get the SN that's provisioned on the SIM
+    if cli.sn.strip() == '':
+        cli.sn = get_sn_for_sim(subscription.mobilenumber.active_sim)
+        cli.save()
+        ...
+        \end{lstlisting}
+	\end{block}
+\end{frame}
+\begin{frame}[fragile]
+\frametitle{Example}
+	\begin{block}{}
+        \begin{lstlisting}[
+            language=Python,
+            basicstyle=\ttfamily\tiny,
+            keywordstyle=\color{blue}\ttfamily,
+            stringstyle=\color{red}\ttfamily,
+        ]
+    ...
+    # Push the CLI to the next state if necessary
+    state = State.objects.default(cli)
+    if state is None:
+        return False
+    elif state.current_is['CLI_SIM_ACTIVE']:
+        result = True
+    elif state.current_is['NOT_IN_ARTILIUM']:
+        result = state.action(None, 'attach_cli_to_user')
+    elif state.in_group['can_resume']:
+        result = state.action(None, state.get_action_names()[0])
+    else:
+        return False
+
+    # Set all warning SMS as SENT
+    for f in Flag.objects.filter(name__startswith='ALERT', name__endswith='SENT'):
+        f.add_subscription(subscription)
+
+    if result:
+        if not subscription.has_number_porting:
+            Status.objects.sim_activated(subscription)
+        else:
+            Status.objects.number_porting_requested(subscription)
+
+        # mark sim as active
+        act = Activation.objects.get(subscription=subscription)
+        act.activated_on = datetime.now()
+        act.save()
+        ...
+        \end{lstlisting}
+	\end{block}
+\end{frame}
+\begin{frame}[fragile]
+\frametitle{Example}
+	\begin{block}{}
+        \begin{lstlisting}[
+            language=Python,
+            basicstyle=\ttfamily\tiny,
+            keywordstyle=\color{blue}\ttfamily,
+            stringstyle=\color{red}\ttfamily,
+        ]
+    ...
+        # Put all topups on hold back to paymentdone
+        subscription.topup_set.get_on_hold().update(status=TOPUP_STATUS_PAYMENT_DONE)
+    else:
+        from mvne.activation.utils import send_activation_failure_email
+        send_activation_failure_email(subscription)
+        return False
+
+    return True
+        \end{lstlisting}
+	\end{block}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Issues}
+    \begin{block}{}
+        \begin{itemize}
+            \item Function is long (\textgreater 15 lines)
+            \item Function intent is clear by name, but details of function requires effort understand
+            \item Code is separated in logical chunks but no real abstraction mechanism is used
+        \end{itemize}
+    \end{block}
+
+\end{frame}
+
+\begin{frame}
+    \frametitle{My beef with comments}
+    \begin{block}{}
+        \begin{itemize}
+            \item Will get outdated when code changes
+            \item Gives wrong/incomplete information
+            \item Often used as an alternative readable code
+            \item Less thought given to good naming
+        \end{itemize}
+    \end{block}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Example}
+	\begin{block}{}
+        \begin{lstlisting}[
+            language=Python,
+            basicstyle=\ttfamily\tiny,
+            keywordstyle=\color{blue}\ttfamily,
+            stringstyle=\color{red}\ttfamily,
+        ]
+def _activate_in_arta(subscription):
+    """
+    ...
+    """
+    if not gargoyle.is_active('arta:provisioning:activations'):
+        return False
+
+    cli = get_or_create_backend_cli()
+
+    set_sn_on_sim(subscription, cli)
+    next_state = push_cli_to_next_state(cli)
+    notify_sim_sent(subscription)
+    activate_subscription(subscription)
+        \end{lstlisting}
+	\end{block}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Benefits}
+    \begin{block}{}
+        \begin{itemize}
+            \item Content of function is all at the same level of detail.
+            \item Easier to understand the function in question. More details can be found for each separate step
+            \item Forces more thought through names (no one wants super long names, but intent needs to be clear)
+            \item Incentives functional style (which is clearer IMO)
+            \item Disincentives state change in between logical chunks
+        \end{itemize}
+    \end{block}
+\end{frame}
